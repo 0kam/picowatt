@@ -14,9 +14,11 @@ pico_sdk_init()
 add_executable(picowatt
     src/main.c
     src/ina228.c
+    src/ssd1306_ui.c
+    lib/pico-ssd1306/ssd1306.c
 )
 
-target_include_directories(picowatt PRIVATE src)
+target_include_directories(picowatt PRIVATE src lib/pico-ssd1306)
 
 target_compile_options(picowatt PRIVATE -Wall -Wextra)
 
