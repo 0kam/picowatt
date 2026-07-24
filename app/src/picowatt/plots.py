@@ -26,12 +26,15 @@ class LivePlots(pg.GraphicsLayoutWidget):
             p.setLabel("left", name, units=unit)
             p.showGrid(x=True, y=True, alpha=0.2)
             p.setClipToView(True)
+            # Y range follows only the visible data; no "ks"-style prefix on time
+            p.getViewBox().setAutoVisible(y=True)
+            p.getAxis("bottom").enableAutoSIPrefix(False)
             if row > 0:
                 p.setXLink(self.plots[0])
             if row < 2:
                 p.getAxis("bottom").setStyle(showValues=False)
             self.plots.append(p)
-        self.plots[2].setLabel("bottom", "Time", units="s")
+        self.plots[2].setLabel("bottom", "Time [s]")
 
         # curves[plot_row][ch]
         self.curves = [
@@ -69,3 +72,9 @@ class LivePlots(pg.GraphicsLayoutWidget):
 
     def set_x_range(self, t0: float, t1: float) -> None:
         self.plots[0].setXRange(t0, t1, padding=0)
+
+    def reset_view(self) -> None:
+        """Re-enable Y autorange on all plots (X is driven by follow mode)."""
+        for p in self.plots:
+            p.enableAutoRange(axis="y")
+            p.getViewBox().setAutoVisible(y=True)

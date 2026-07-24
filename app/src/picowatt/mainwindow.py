@@ -22,8 +22,10 @@ from PySide6.QtWidgets import (
 
 from . import protocol as proto
 from .buffer import ChannelBuffer
+from .calibration import CalibrationStore
 from .csv_logger import CsvLogger
 from .device import find_ports
+from .dialogs import AdvancedSettingsDialog, CalibrationDialog
 from .measure import integrate_region
 from .plots import CH_NAMES, LivePlots
 from .serial_link import SerialWorker
@@ -42,6 +44,12 @@ class MainWindow(QMainWindow):
         self.streaming = False
         self.mode = 0
         self.logger: CsvLogger | None = None
+        self.cal_store = CalibrationStore()
+        self.config: proto.Config | None = None
+        # After a calibration is applied, buffered samples older than this
+        # were converted with the previous calibration — never reuse them.
+        self._cal_markers: list[float | None] = [None, None]
+        self._disp_t1: float | None = None  # smoothed right edge for follow mode
 
         self.plots = LivePlots()
         self.setCentralWidget(self.plots)
@@ -61,6 +69,11 @@ class MainWindow(QMainWindow):
         self.plot_timer.setInterval(33)  # ~30 Hz
         self.plot_timer.timeout.connect(self._refresh_plots)
         self.plot_timer.start()
+
+        # Manual pan/zoom on the time axis takes over from follow mode.
+        self.plots.plots[0].getViewBox().sigRangeChangedManually.connect(
+            lambda *_: self.follow_check.setChecked(False)
+        )
 
     # -- UI scaffolding ----------------------------------------------------
 
@@ -121,6 +134,10 @@ class MainWindow(QMainWindow):
         self.follow_check.setChecked(True)
         tb.addWidget(self.follow_check)
 
+        reset_view_btn = QPushButton("Reset view")
+        reset_view_btn.clicked.connect(self._reset_view)
+        tb.addWidget(reset_view_btn)
+
         tb.addSeparator()
         self.measure_check = QCheckBox("Measure")
         self.measure_check.toggled.connect(self._toggle_measure)
@@ -130,6 +147,17 @@ class MainWindow(QMainWindow):
         self.log_btn.setCheckable(True)
         self.log_btn.toggled.connect(self._toggle_logging)
         tb.addWidget(self.log_btn)
+
+        tb.addSeparator()
+        self.cal_btn = QPushButton("Calibrate…")
+        self.cal_btn.setEnabled(False)
+        self.cal_btn.clicked.connect(self._open_calibration)
+        tb.addWidget(self.cal_btn)
+
+        self.adv_btn = QPushButton("Advanced…")
+        self.adv_btn.setEnabled(False)
+        self.adv_btn.clicked.connect(self._open_advanced)
+        tb.addWidget(self.adv_btn)
 
     def _build_statusbar(self) -> None:
         self.status_conn = QLabel("disconnected")
@@ -162,7 +190,7 @@ class MainWindow(QMainWindow):
             self.worker.shutdown()
             return
         port = self.port_combo.currentText() or None
-        self.worker = SerialWorker(port)
+        self.worker = SerialWorker(port, cal_store=self.cal_store)
         self.worker.connected.connect(self._on_connected)
         self.worker.config_updated.connect(self._on_config)
         self.worker.samples.connect(self._on_samples)
@@ -179,9 +207,12 @@ class MainWindow(QMainWindow):
         )
         self.start_btn.setEnabled(True)
         self.mode_combo.setEnabled(bool(hello.ch_present & 2))
+        self.cal_btn.setEnabled(True)
+        self.adv_btn.setEnabled(True)
 
     def _on_config(self, cfg: proto.Config) -> None:
         self.mode = cfg.mode
+        self.config = cfg
         self.status_drops.setText(f"ring drops: {cfg.drops}")
 
     def _on_session_end(self) -> None:
@@ -192,6 +223,8 @@ class MainWindow(QMainWindow):
         self.connect_btn.setText("Connect")
         self.start_btn.setText("Start")
         self.start_btn.setEnabled(False)
+        self.cal_btn.setEnabled(False)
+        self.adv_btn.setEnabled(False)
         self.status_conn.setText("disconnected")
 
     def _on_error(self, msg: str) -> None:
@@ -263,6 +296,74 @@ class MainWindow(QMainWindow):
             parts.append(f"<br><b>η</b> {eff:.2f} %")
         self.region_label.setText("".join(parts))
 
+    # -- calibration / advanced settings ---------------------------------------
+
+    def _mean_current(self, ch: int) -> tuple[float, int]:
+        """Mean displayed current over the last second of post-calibration data."""
+        buf = self.buffers[ch]
+        t_last = buf.latest_t()
+        if t_last is None:
+            return 0.0, 0
+        t_lo = t_last - 1.0
+        marker = self._cal_markers[ch]
+        if marker is not None:
+            # 0.3 s margin covers the config round-trip on the worker thread
+            t_lo = max(t_lo, marker + 0.3)
+        if t_last - t_lo < 0.4:
+            return 0.0, 0  # not enough fresh data yet
+        t, _v, i = buf.window(t_lo, t_last)
+        if len(i) == 0:
+            return 0.0, 0
+        return float(np.mean(i.astype(np.float64))), len(t)
+
+    def _mark_calibration(self, ch: int) -> None:
+        self._cal_markers[ch] = self.buffers[ch].latest_t()
+
+    def _open_calibration(self) -> None:
+        if self.worker is None or self.worker.board_id is None or self.config is None:
+            return
+        board = self.worker.board_id
+
+        def get_shunt_cal(ch: int) -> int:
+            assert self.config is not None
+            return self.config.ch[ch].shunt_cal
+
+        def apply_zero(ch: int, delta_a: float) -> None:
+            assert self.config is not None and self.worker is not None
+            adcrange = self.config.ch[ch].adcrange
+            old = self.cal_store.get(board, ch).offset_for(adcrange)
+            self.cal_store.set_zero_offset(board, ch, adcrange, old + delta_a)
+            # No-op command forces a config round-trip -> worker reloads offsets
+            self.worker.submit(lambda d: None)
+            self._mark_calibration(ch)
+
+        def apply_gain(ch: int, new_cal: int) -> None:
+            assert self.worker is not None
+            self.cal_store.set_shunt_cal(board, ch, new_cal)
+            self.worker.submit(lambda d: d.set_shunt_cal(ch, new_cal))
+            self._mark_calibration(ch)
+
+        def apply_reset(ch: int) -> None:
+            assert self.config is not None and self.worker is not None
+            from .calibration import DEFAULT_SHUNT_CAL, ChannelCal
+            self.cal_store.set(board, ch, ChannelCal())
+            self.worker.submit(lambda d: d.set_shunt_cal(ch, DEFAULT_SHUNT_CAL))
+            self._mark_calibration(ch)
+
+        CalibrationDialog(
+            self, self._mean_current, get_shunt_cal, apply_zero, apply_gain, apply_reset
+        ).exec()
+
+    def _open_advanced(self) -> None:
+        if self.worker is None or self.config is None:
+            return
+
+        def apply_fn(ch: int, adcrange: int, vbusct: int, vshct: int, avg: int) -> None:
+            assert self.worker is not None
+            self.worker.submit(lambda d: d.set_adc(ch, adcrange, vbusct, vshct, avg))
+
+        AdvancedSettingsDialog(self, self.config, apply_fn).exec()
+
     # -- CSV logging -----------------------------------------------------------
 
     def _toggle_logging(self, on: bool) -> None:
@@ -300,13 +401,30 @@ class MainWindow(QMainWindow):
     def _on_stats(self, gaps: int, _drops: int) -> None:
         self.status_rate.setText(f"frame gaps: {gaps}")
 
+    def _reset_view(self) -> None:
+        self.plots.reset_view()
+        self._disp_t1 = None
+        self.follow_check.setChecked(True)
+
     def _refresh_plots(self) -> None:
         latest = [b.latest_t() for b in self.buffers]
         t_last = max((t for t in latest if t is not None), default=None)
         if t_last is None:
             return
-        win = self.window_spin.value()
-        t0, t1 = t_last - win, t_last
+        if self.follow_check.isChecked():
+            # Exponential approach to the newest sample: data arrives in USB
+            # bursts, and snapping the range to each burst looks jerky.
+            if self._disp_t1 is None or t_last < self._disp_t1:
+                self._disp_t1 = t_last
+            else:
+                self._disp_t1 += 0.35 * (t_last - self._disp_t1)
+            t1 = self._disp_t1
+            t0 = t1 - self.window_spin.value()
+        else:
+            # Feed whatever time range the user has panned/zoomed to.
+            x0, x1 = self.plots.plots[0].viewRange()[0]
+            pad = (x1 - x0) * 0.1
+            t0, t1 = x0 - pad, x1 + pad
         nch = 2 if self.mode == 1 else 1
         for c in range(2):
             if c < nch and self.buffers[c].count:

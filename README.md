@@ -2,6 +2,40 @@
 
 Raspberry Pi Pico 2 + INA228 による PPK2 ライクな消費電力測定システム。
 
+## クイックスタート
+
+### ファームウェアのビルドと書き込み
+
+必要なもの: cmake、ARM GNU toolchain、[pico-sdk](https://github.com/raspberrypi/pico-sdk) 2.3+(`lib/tinyusb` サブモジュール込み)、picotool 2.3+。
+
+```sh
+export PICO_SDK_PATH=~/pico-sdk            # 既定値
+export PICO_TOOLCHAIN_PATH=~/toolchains/arm-gnu-toolchain-...  # PATH に無い場合
+./firmware/build.sh                        # → firmware/build/picowatt.uf2
+
+# 初回のみ BOOTSEL ボタンを押しながら USB 接続して:
+picotool load -fx firmware/build/picowatt.uf2
+# 2回目以降はボタン不要(実行中ファームがリブートコマンドを受け付ける)
+```
+
+UF2 ドライブへのドラッグ&ドロップでも書き込めるが、USB マスストレージが
+制限された環境では picotool 経由(PICOBOOT)が使える。
+
+### PC アプリ
+
+```sh
+cd app
+uv sync
+uv run picowatt        # GUI
+uv run picowatt-cli --seconds 10 --csv out.csv   # ヘッドレスキャプチャ
+```
+
+GUI: Connect → Start でストリーミング開始。Measure チェックで電力プロット上の
+任意区間を選択して Wh/Ah を積算。Log CSV… で全サンプルをファイルに記録。
+Calibrate… でゼロ校正・1点ゲイン校正(ボードIDごとに自動保存され、接続時に
+自動適用)。プロトコル仕様は [docs/protocol.md](docs/protocol.md)、実測性能は
+[docs/verification.md](docs/verification.md) を参照。
+
 ## 概要
 
 INA228 電力モニタを Pico 2 で読み取り、USB シリアル経由で PC に転送。PC 側アプリでリアルタイム表示・ロギング・任意区間の電力量(Wh)積算を行う。
