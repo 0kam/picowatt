@@ -1,82 +1,105 @@
-// picowatt firmware — M3: INA228 text output + OLED display.
+// picowatt firmware — core0: USB CDC binary protocol; core1: sampling (sampler.c).
 // Copyright (C) 2026  Ryotaro Okamoto
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <stdio.h>
+#include <string.h>
+#include "pico/bootrom.h"
 #include "pico/stdlib.h"
-#include "hardware/i2c.h"
+#include "tusb.h"
 #include "config.h"
-#include "ina228.h"
-#include "ssd1306_ui.h"
+#include "commands.h"
+#include "proto.h"
+#include "ring.h"
+#include "sampler.h"
 
-// M2 defaults: ADCRANGE=0 (8 uA/LSB), 540 us conversions, 16x averaging
-// -> new sample every (540+540)*16 = 17.3 ms (~58 Hz); printed at 10 Hz.
-#define CURRENT_LSB_A 8e-6f
+#define RECORDS_PER_FRAME 20
+#define RECORD_BYTES 13
+#define FLUSH_INTERVAL_US 10000
 
-static void i2c_bus_init(void) {
-    i2c_init(PW_I2C, PW_I2C_BAUD_HZ);
-    gpio_set_function(PW_I2C_SDA_PIN, GPIO_FUNC_I2C);
-    gpio_set_function(PW_I2C_SCL_PIN, GPIO_FUNC_I2C);
-    // External 10k pullups on the INA228 board; internal ones don't hurt.
-    gpio_pull_up(PW_I2C_SDA_PIN);
-    gpio_pull_up(PW_I2C_SCL_PIN);
+// Serialized DATA frame payload: frame_seq u16 | count u8 | records
+static uint8_t data_payload[3 + RECORDS_PER_FRAME * RECORD_BYTES];
+static uint16_t frame_seq = 0;
+static uint8_t pending = 0;
+static uint32_t last_flush_us = 0;
+
+static void put_record(const sample_t *s) {
+    uint8_t *b = data_payload + 3 + (size_t)pending * RECORD_BYTES;
+    b[0] = s->ch;
+    memcpy(b + 1, &s->t_us, 4);
+    memcpy(b + 5, &s->vbus_raw, 4);
+    memcpy(b + 9, &s->curr_raw, 4);
+    pending++;
+}
+
+static void flush_data_frame(void) {
+    if (pending == 0) return;
+    data_payload[0] = (uint8_t)(frame_seq & 0xFF);
+    data_payload[1] = (uint8_t)(frame_seq >> 8);
+    data_payload[2] = pending;
+    commands_send_frame(FRAME_DATA, data_payload, 3 + (size_t)pending * RECORD_BYTES);
+    frame_seq++;
+    pending = 0;
+    last_flush_us = time_us_32();
+}
+
+static void tx_pump(void) {
+    // Only pull from the ring when the CDC FIFO can take a full frame,
+    // so backpressure stays in the (deep) ring, not in a half-built frame.
+    while (tud_cdc_write_available() > 3 * RECORDS_PER_FRAME * RECORD_BYTES / 2 + 16) {
+        sample_t s;
+        if (!ring_pop(&s)) break;
+        put_record(&s);
+        if (pending == RECORDS_PER_FRAME) flush_data_frame();
+    }
+    if (pending > 0 && time_us_32() - last_flush_us > FLUSH_INTERVAL_US) {
+        flush_data_frame();
+    }
+}
+
+static void rx_pump(proto_decoder_t *dec) {
+    uint8_t buf[64];
+    while (tud_cdc_available()) {
+        uint32_t n = tud_cdc_read(buf, sizeof buf);
+        for (uint32_t i = 0; i < n; i++) {
+            if (proto_decoder_feed(dec, buf[i])) {
+                commands_handle(dec->type, dec->payload, dec->payload_len);
+            }
+        }
+    }
+}
+
+// Arduino-style touch reset: 1200 baud -> reboot into BOOTSEL for flashing.
+void tud_cdc_line_coding_cb(uint8_t itf, const cdc_line_coding_t *coding) {
+    (void)itf;
+    if (coding->bit_rate == 1200) reset_usb_boot(0, 0);
 }
 
 int main(void) {
-    stdio_init_all();
-
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
-    i2c_bus_init();
+    ring_init();
+    sampler_start();
+    tusb_init();
 
-    bool have_oled = ui_init(PW_I2C);
-    if (have_oled) ui_message("picowatt", "starting...");
+    proto_decoder_t dec;
+    proto_decoder_init(&dec);
 
-    ina228_t ina;
-    bool ok = false;
-    while (!ok) {
-        ok = ina228_init(&ina, PW_I2C, INA228_ADDR_IN);
-        if (ok) {
-            ok = ina228_set_adc(&ina, false, INA228_CT_540US, INA228_CT_540US,
-                                INA228_AVG_16) &&
-                 ina228_write_shunt_cal(&ina, PW_SHUNT_CAL_DEFAULT);
-        }
-        if (!ok) {
-            printf("ERROR: INA228 not found at 0x%02X (check wiring)\n", INA228_ADDR_IN);
-            ui_message("ERROR", "INA228 not found");
-            gpio_put(PICO_DEFAULT_LED_PIN, 1);  // solid LED = error
-            sleep_ms(1000);
-        }
-    }
-
-    absolute_time_t next_print = make_timeout_time_ms(100);
+    uint32_t last_led_us = 0;
     bool led_on = false;
-    int oled_div = 0;
 
     while (true) {
-        sleep_until(next_print);
-        next_print = delayed_by_ms(next_print, 100);
+        tud_task();
+        rx_pump(&dec);
+        tx_pump();
 
-        int32_t vbus_raw = ina228_read_vbus_raw(&ina);
-        int32_t curr_raw = ina228_read_current_raw(&ina);
-        if (vbus_raw == INT32_MIN || curr_raw == INT32_MIN) {
-            printf("ERROR: I2C read failed\n");
-            continue;
+        // LED: 1 Hz idle, 5 Hz streaming
+        uint32_t period = g_state.streaming ? 100000 : 500000;
+        uint32_t now = time_us_32();
+        if (now - last_led_us > period) {
+            last_led_us = now;
+            led_on = !led_on;
+            gpio_put(PICO_DEFAULT_LED_PIN, led_on);
         }
-
-        float v = (float)vbus_raw * INA228_VBUS_LSB_V;
-        float i = (float)curr_raw * CURRENT_LSB_A;
-        float p = v * i;
-        printf("V=%9.5f V  I=%9.6f A  P=%10.6f W  (vbus_raw=%ld curr_raw=%ld)\n",
-               (double)v, (double)i, (double)p, (long)vbus_raw, (long)curr_raw);
-
-        if (++oled_div >= 3) {  // ~3.3 Hz OLED refresh
-            oled_div = 0;
-            ui_single(v, i, p);
-        }
-
-        led_on = !led_on;  // 5 Hz blink while measuring
-        gpio_put(PICO_DEFAULT_LED_PIN, led_on);
     }
 }
