@@ -9,7 +9,7 @@ dependencies = [
     "pyside6>=6.7",
     "pyqtgraph>=0.13",
     "pyserial>=3.5",
-    "numpy>=1.26",
+    "numpy>=2.0",
     "cobs>=1.2",
     "platformdirs>=4.0",
 ]

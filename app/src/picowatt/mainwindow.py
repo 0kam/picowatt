@@ -5,12 +5,14 @@ from __future__ import annotations
 import sys
 
 import numpy as np
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDockWidget,
     QDoubleSpinBox,
+    QFileDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -20,8 +22,10 @@ from PySide6.QtWidgets import (
 
 from . import protocol as proto
 from .buffer import ChannelBuffer
+from .csv_logger import CsvLogger
 from .device import find_ports
-from .plots import LivePlots
+from .measure import integrate_region
+from .plots import CH_NAMES, LivePlots
 from .serial_link import SerialWorker
 
 BUFFER_CAPACITY = 9_000_000  # ~45 min at 3.3 kHz, ~144 MB
@@ -37,11 +41,21 @@ class MainWindow(QMainWindow):
         self.buffers = [ChannelBuffer(BUFFER_CAPACITY) for _ in range(2)]
         self.streaming = False
         self.mode = 0
+        self.logger: CsvLogger | None = None
 
         self.plots = LivePlots()
         self.setCentralWidget(self.plots)
         self._build_toolbar()
         self._build_statusbar()
+        self._build_region_dock()
+
+        self.region_timer = QTimer(self)
+        self.region_timer.setInterval(150)
+        self.region_timer.setSingleShot(True)
+        self.region_timer.timeout.connect(self._update_region_panel)
+        self.plots.region.sigRegionChanged.connect(
+            lambda: self.region_timer.start()
+        )
 
         self.plot_timer = QTimer(self)
         self.plot_timer.setInterval(33)  # ~30 Hz
@@ -107,13 +121,35 @@ class MainWindow(QMainWindow):
         self.follow_check.setChecked(True)
         tb.addWidget(self.follow_check)
 
+        tb.addSeparator()
+        self.measure_check = QCheckBox("Measure")
+        self.measure_check.toggled.connect(self._toggle_measure)
+        tb.addWidget(self.measure_check)
+
+        self.log_btn = QPushButton("Log CSV…")
+        self.log_btn.setCheckable(True)
+        self.log_btn.toggled.connect(self._toggle_logging)
+        tb.addWidget(self.log_btn)
+
     def _build_statusbar(self) -> None:
         self.status_conn = QLabel("disconnected")
         self.status_rate = QLabel("")
         self.status_drops = QLabel("")
-        for w in (self.status_conn, self.status_rate, self.status_drops):
+        self.status_log = QLabel("")
+        for w in (self.status_conn, self.status_rate, self.status_drops, self.status_log):
             self.statusBar().addWidget(w)
             w.setMargin(4)
+
+    def _build_region_dock(self) -> None:
+        self.region_dock = QDockWidget("Region", self)
+        self.region_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
+        self.region_label = QLabel("enable Measure and drag the region")
+        self.region_label.setTextFormat(Qt.TextFormat.RichText)
+        self.region_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.region_label.setMargin(8)
+        self.region_dock.setWidget(self.region_label)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.region_dock)
+        self.region_dock.hide()
 
     # -- connection lifecycle ------------------------------------------------
 
@@ -186,10 +222,80 @@ class MainWindow(QMainWindow):
         adcrange = self.range_combo.currentIndex()
         self.worker.submit(lambda d: d.set_preset(preset, adcrange=adcrange))
 
+    # -- region measurement ----------------------------------------------------
+
+    def _toggle_measure(self, on: bool) -> None:
+        self.plots.show_region(on)
+        self.region_dock.setVisible(on)
+        if on:
+            self._update_region_panel()
+
+    @staticmethod
+    def _fmt(val: float, unit: str) -> str:
+        for factor, prefix in ((1.0, ""), (1e3, "m"), (1e6, "µ")):
+            if abs(val) * factor >= 1.0 or prefix == "µ":
+                return f"{val * factor:.4f} {prefix}{unit}"
+        return f"{val:.4f} {unit}"
+
+    def _update_region_panel(self) -> None:
+        if not self.measure_check.isChecked():
+            return
+        t0, t1 = self.plots.region_bounds()
+        nch = 2 if self.mode == 1 else 1
+        parts = [f"<b>Δt</b> {t1 - t0:.3f} s"]
+        results = {}
+        for c in range(nch):
+            r = integrate_region(self.buffers[c], t0, t1)
+            results[c] = r
+            if r is None:
+                parts.append(f"<br><b>ch{c}</b>: no data")
+                continue
+            parts.append(
+                f"<br><b>ch{c} ({CH_NAMES[c]})</b>  n={r.n}"
+                f"<br>&nbsp;&nbsp;V<sub>avg</sub> {self._fmt(r.avg_v, 'V')}"
+                f"<br>&nbsp;&nbsp;I<sub>avg</sub> {self._fmt(r.avg_i, 'A')}"
+                f"<br>&nbsp;&nbsp;P<sub>avg</sub> {self._fmt(r.avg_w, 'W')}"
+                f"<br>&nbsp;&nbsp;<b>E {self._fmt(r.wh, 'Wh')}</b>"
+                f"<br>&nbsp;&nbsp;Q {self._fmt(r.ah, 'Ah')}"
+            )
+        if nch == 2 and results.get(0) and results.get(1) and results[0].wh > 0:
+            eff = 100.0 * results[1].wh / results[0].wh
+            parts.append(f"<br><b>η</b> {eff:.2f} %")
+        self.region_label.setText("".join(parts))
+
+    # -- CSV logging -----------------------------------------------------------
+
+    def _toggle_logging(self, on: bool) -> None:
+        if on:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Log to CSV", "picowatt.csv", "CSV files (*.csv)"
+            )
+            if not path:
+                self.log_btn.setChecked(False)
+                return
+            meta = {"device": self.status_conn.text()}
+            if self.worker is not None and self.worker.isRunning():
+                meta["mode"] = "dual" if self.mode == 1 else "single"
+            self.logger = CsvLogger(path, meta)
+            self.log_btn.setText("Stop log")
+            self.status_log.setText(f"logging → {path}")
+        else:
+            if self.logger is not None:
+                self.logger.stop()
+                self.status_log.setText(
+                    f"logged {self.logger.rows_written} rows"
+                    + (f" ({self.logger.dropped_batches} batches dropped)"
+                       if self.logger.dropped_batches else "")
+                )
+                self.logger = None
+            self.log_btn.setText("Log CSV…")
+
     # -- data path -----------------------------------------------------------
 
     def _on_samples(self, ch: int, t: np.ndarray, v: np.ndarray, i: np.ndarray) -> None:
         self.buffers[ch].append(t, v, i)
+        if self.logger is not None:
+            self.logger.log(ch, t, v, i)
 
     def _on_stats(self, gaps: int, _drops: int) -> None:
         self.status_rate.setText(f"frame gaps: {gaps}")
@@ -211,6 +317,8 @@ class MainWindow(QMainWindow):
             self.plots.set_x_range(t0, t1)
 
     def closeEvent(self, event) -> None:
+        if self.logger is not None:
+            self.logger.stop()
         if self.worker is not None:
             self.worker.shutdown()
             self.worker.wait(2000)

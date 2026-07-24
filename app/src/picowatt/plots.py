@@ -39,6 +39,23 @@ class LivePlots(pg.GraphicsLayoutWidget):
             for p in self.plots
         ]
 
+        # Region selector on the power plot for energy integration.
+        self.region = pg.LinearRegionItem(brush=(80, 200, 120, 40))
+        self.region.setZValue(10)
+        self.region.setVisible(False)
+        self.plots[2].addItem(self.region)
+
+    def show_region(self, visible: bool) -> None:
+        if visible:
+            (x0, x1) = self.plots[0].viewRange()[0]
+            span = x1 - x0
+            self.region.setRegion((x0 + span * 0.3, x0 + span * 0.7))
+        self.region.setVisible(visible)
+
+    def region_bounds(self) -> tuple[float, float]:
+        lo, hi = self.region.getRegion()
+        return float(lo), float(hi)
+
     def update_channel(self, ch: int, buf: ChannelBuffer, t0: float, t1: float) -> None:
         t, v, i = buf.window(t0, t1)
         if len(t) == 0:
