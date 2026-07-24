@@ -13,6 +13,7 @@ pico_sdk_init()
 
 add_executable(picowatt
     src/main.c
+    src/ina228.c
 )
 
 target_include_directories(picowatt PRIVATE src)
