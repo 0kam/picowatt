@@ -14,6 +14,11 @@ dependencies = [
     "platformdirs>=4.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/0kam/picowatt"
+Repository = "https://github.com/0kam/picowatt"
+Documentation = "https://github.com/0kam/picowatt/tree/main/docs"
+
 [project.scripts]
 picowatt = "picowatt.mainwindow:main"
 picowatt-cli = "picowatt.cli:main"

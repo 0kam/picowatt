@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '13.2.Rel1'
+      - name: Install libusb (picotool build dependency)
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev
+      - name: Clone pico-sdk
+        run: |
+          git clone --depth 1 --branch 2.3.0 https://github.com/raspberrypi/pico-sdk.git "$HOME/pico-sdk"
+          cd "$HOME/pico-sdk"
+          git submodule update --init --depth 1 lib/tinyusb
+      - name: Build
+        env:
+          PICO_SDK_PATH: /home/runner/pico-sdk
+        run: |
+          cmake -S firmware -B firmware/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build firmware/build -j"$(nproc)"
+          cp firmware/build/picowatt.uf2 "picowatt-${{ github.ref_name }}.uf2"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: picowatt-*.uf2
+
+  app-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build sdist and wheel
+        working-directory: app
+        run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-dist
+          path: app/dist/*
+
+  github-release:
+    needs: [firmware, app-dist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  pypi:
+    needs: [app-dist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # PyPI Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

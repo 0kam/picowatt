@@ -4,7 +4,22 @@ Raspberry Pi Pico 2 + INA228 による PPK2 ライクな消費電力測定シス
 
 ## クイックスタート
 
-### ファームウェアのビルドと書き込み
+### リリース版を使う(推奨)
+
+1. **ファームウェア**: [Releases](https://github.com/0kam/picowatt/releases) から
+   `picowatt-vX.Y.Z.uf2` をダウンロードし、BOOTSEL ボタンを押しながら Pico 2 を
+   USB 接続して現れる `RP2350` ドライブにドラッグ(または
+   `picotool load -fx picowatt-vX.Y.Z.uf2`)。
+2. **PC アプリ**: [uv](https://docs.astral.sh/uv/) があれば1行で起動できる:
+
+   ```sh
+   uvx picowatt        # GUI
+   uvx --from picowatt picowatt-cli --seconds 10 --csv out.csv
+   ```
+
+   (pip 派は `pipx install picowatt` でも可)
+
+### ソースからのビルドと書き込み
 
 必要なもの: cmake、ARM GNU toolchain、[pico-sdk](https://github.com/raspberrypi/pico-sdk) 2.3+(`lib/tinyusb` サブモジュール込み)、picotool 2.3+。
 
