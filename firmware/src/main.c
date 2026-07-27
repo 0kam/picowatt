@@ -74,6 +74,14 @@ void tud_cdc_line_coding_cb(uint8_t itf, const cdc_line_coding_t *coding) {
     if (coding->bit_rate == 1200) reset_usb_boot(0, 0);
 }
 
+// Host closed the port (DTR dropped): stop streaming so samples don't pile up
+// in the ring/CDC FIFO and reappear as a stale backlog on the next session.
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
+    (void)itf;
+    (void)rts;
+    if (!dtr) g_state.streaming = false;
+}
+
 int main(void) {
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);

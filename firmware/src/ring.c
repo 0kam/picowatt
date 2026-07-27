@@ -37,6 +37,11 @@ bool ring_pop(sample_t *s) {
     return true;
 }
 
+void ring_clear(void) {
+    // Consumer-side flush: advancing tail to head is safe for the consumer.
+    tail = head;
+}
+
 uint32_t ring_drop_count(void) {
     return drops;
 }

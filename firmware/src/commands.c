@@ -112,8 +112,17 @@ static void handle_get_config(void) {
 
 void commands_handle(uint8_t type, const uint8_t *payload, size_t len) {
     switch (type) {
-        case FRAME_HELLO:         handle_hello(payload, len); break;
-        case FRAME_START:         g_state.streaming = true;  send_ack(FRAME_START); break;
+        case FRAME_HELLO:
+            // New session: stop any leftover streaming and drop stale backlog.
+            g_state.streaming = false;
+            ring_clear();
+            handle_hello(payload, len);
+            break;
+        case FRAME_START:
+            ring_clear();  // stream starts with fresh samples only
+            g_state.streaming = true;
+            send_ack(FRAME_START);
+            break;
         case FRAME_STOP:          g_state.streaming = false; send_ack(FRAME_STOP);  break;
         case FRAME_SET_MODE:      handle_set_mode(payload, len); break;
         case FRAME_SET_ADC:       handle_set_adc(payload, len); break;

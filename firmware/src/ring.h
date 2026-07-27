@@ -20,6 +20,7 @@ typedef struct {
 void ring_init(void);
 bool ring_push(const sample_t *s);   // core1 only; false + drop count on full
 bool ring_pop(sample_t *s);          // core0 only
+void ring_clear(void);               // core0 (consumer) only: discard backlog
 uint32_t ring_drop_count(void);
 
 #endif // PICOWATT_RING_H
