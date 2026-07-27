@@ -189,6 +189,11 @@ class MainWindow(QMainWindow):
         if self.worker is not None:
             self.worker.shutdown()
             return
+        # Each session restarts device time at 0 — stale samples from the
+        # previous session would break the buffers' time monotonicity.
+        self.buffers = [ChannelBuffer(BUFFER_CAPACITY) for _ in range(2)]
+        self._disp_t1 = None
+        self._cal_markers = [None, None]
         port = self.port_combo.currentText() or None
         self.worker = SerialWorker(port, cal_store=self.cal_store)
         self.worker.connected.connect(self._on_connected)

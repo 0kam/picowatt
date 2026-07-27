@@ -50,3 +50,17 @@ DC-DC test: 秋月 M78AR05-1 (5 V / 1 A), 12 V input, load sweep:
 
 Plateau agrees with the datasheet typical (~92 % at 12 V in) within ~1 %;
 light-load rolloff consistent with quiescent-current loss.
+
+## M8 — calibration (2026-07-27)
+
+ch0, ADCRANGE=0. Zero cal at no load, one-point gain cal at ET5410A+
+CC ~1.0 A → **SHUNT_CAL 1573 → 1571** (−0.13 %, shunt near nominal).
+
+| Load setpoint (ET5410A+ readout) | picowatt reading | Deviation |
+|---|---|---|
+| 0.101 A | 0.10215 A | +1.1 mA (within the load meter's ±(0.05%+0.05%FS) uncertainty) |
+| 1.995 A | 1.9958 A | **+0.04 %** |
+
+Disconnect → reconnect restores calibration automatically (profile keyed by
+board_id) and streaming stays stable (after the stale-backlog and
+buffer-reset fixes).
