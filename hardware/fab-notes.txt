@@ -1,0 +1,41 @@
+Fabrication notes -- picowatt carrier board
+===========================================
+
+Board outline : 92.0 x 70.0 mm, plain rectangle, no cutouts, slots or
+                V-scoring. Outline is on the Edge_Cuts layer.
+Layers        : 2 (FR-4, 1.6 mm, 1 oz finished copper)
+Min track     : 0.30 mm (11.8 mil)
+Min spacing   : 0.20 mm (7.9 mil)
+Min drill     : 0.40 mm (vias)
+Min annular   : 0.20 mm (vias), 0.30 mm (component pads)
+
+
+IMPORTANT -- the 12 mounting holes must be NON-PLATED (NPTH)
+------------------------------------------------------------
+They are supplied in a separate drill file, picowatt-carrier-NPTH.drl:
+
+    8 x 2.8 mm   standoffs under the daughterboards
+    4 x 3.2 mm   board mounting feet
+
+Plating these would connect the mounting screws to the board ground.
+
+All remaining holes are plated (picowatt-carrier-PTH.drl), 83 in total:
+
+    8 x 0.4 mm   vias
+   12 x 0.8 mm   resistors and capacitors
+   61 x 1.0 mm   pin sockets and test point
+    2 x 1.6 mm   screw terminal
+
+
+Other
+-----
+No SMD parts on this board, so no solder paste stencil is required.
+Surface finish: HASL is fine, all assembly is through-hole hand soldering.
+
+
+Files
+-----
+Gerber RS-274X : *.gtl .gbl .gto .gbo .gts .gbs .gm1
+Drill (Excellon, mm, absolute origin) : *-PTH.drl, *-NPTH.drl
+Drill maps     : *-drl_map.gbr
+Job file       : *-job.gbrjob
