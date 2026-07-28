@@ -16,3 +16,11 @@ dist/
 # Editor
 .vscode/
 .idea/
+
+# KiCad
+*.kicad_prl
+*-backups/
+fp-info-cache
+*.kicad_pcb-bak
+*.kicad_sch-bak
+hardware/gerber/
