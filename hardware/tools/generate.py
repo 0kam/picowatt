@@ -134,7 +134,7 @@ PARTS = [
     ("R2", "R", "10k", "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P2.54mm_Vertical", 58.35, 45.0, 0),
     ("R3", "R", "2.2k", "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P2.54mm_Vertical", 74.81, 38.0, 0),
     ("R4", "R", "2.2k", "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P2.54mm_Vertical", 69.73, 34.5, 0),
-    ("C1", "C_Polarized", "10uF", "Capacitor_THT:CP_Radial_D5.0mm_P2.50mm", 78.0, 45.0, 0),
+    ("C1", "C_Polarized", "10uF", "Capacitor_THT:CP_Radial_D5.0mm_P2.00mm", 78.0, 45.0, 0),
     ("C2", "C", "100nF", "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm", 40.0, 45.0, 0),
     ("TP1", "TestPoint", "GND", "TestPoint:TestPoint_Loop_D2.50mm_Drill1.0mm", 85.0, 39.5, 0),
 ]
@@ -460,7 +460,7 @@ def make_fp_ina():
         "extends +2.54/-17.78mm in Y; screw terminal faces -Y. "
         "Pads 5/6/7 (VBUS, VIN-, VIN+) carry the measured supply potential.",
         "adafruit ina228 power monitor breakout socket")]
-    p.append(fp_prop("Reference", "REF**", 0, -4.5, "F.SilkS"))
+    p.append(fp_prop("Reference", "REF**", 0, -7.5, "F.SilkS"))
     p.append(fp_prop("Value", "INA228_Breakout_Socket_1x08", 0, -19.5, "F.Fab", hide=True))
     p.append(fp_prop("Datasheet", "", 0, 0, "F.Fab", hide=True))
     p.append(fp_prop("Description", "", 0, 0, "F.Fab", hide=True))
@@ -480,6 +480,9 @@ def make_fp_ina():
     # pin-1 marker and the "do not touch" band over pads 5..7
     p.append(fp_line(-12.70, 1.6, -9.9, 1.6, "F.SilkS", 0.2))
     p.append(fp_text("user", "VIN+/-", 5.7, 1.6, "F.SilkS", size=0.8))
+    for i, nm in enumerate(INA_PINS):
+        p.append(fp_text("user", nm, -8.89 + i * 2.54, -3.4, "F.SilkS",
+                         size=0.8, thick=0.13, angle=90))
     p.append(fp_box(-12.95, -18.03, 12.95, 2.79, "F.CrtYd", 0.05))
     p.append(")")
     return "\n".join(p) + "\n"
@@ -513,6 +516,11 @@ def make_fp_oled():
     p.append(fp_text("user", "FPC", 0, 23.8, "F.SilkS", size=0.8))
     p.append(fp_text("user", "${REFERENCE}", 0, 13.0, "F.Fab", size=1.5))
     p.append(fp_line(-5.2, -2.2, -2.4, -2.2, "F.SilkS", 0.2))
+    # pin names next to each pad: lets a wrong-pinout module (GND/VCC swapped
+    # lots exist) be caught while soldering, before the module is fitted
+    for i, nm in enumerate(OLED_PINS):
+        p.append(fp_text("user", nm, -3.81 + i * 2.54, 2.8, "F.SilkS",
+                         size=0.8, thick=0.13, angle=90))
     p.append(fp_box(-12.75, -1.75, 12.75, 25.75, "F.CrtYd", 0.05))
     p.append(")")
     return "\n".join(p) + "\n"
@@ -779,6 +787,9 @@ def make_pcb():
         tx, ty = K(2.0, 34.8 - i * 2.2)
         out.append(gr_text(line, tx, ty, "F.SilkS",
                            size=1.2 if i == 0 else 1.0, thick=0.2 if i == 0 else 0.16))
+    tx, ty = K(60.0, 3.0)
+    out.append(gr_text("J4 OLED  pin1=GND VDD SCK SDA", tx, ty, "F.SilkS",
+                       size=0.9, thick=0.15))
     for line, cy in (("GND  <- PSU(-)", 55.5), ("R3/R4 = DNP", 52.5)):
         tx, ty = K(66.0, cy)
         out.append(gr_text(line, tx, ty, "F.SilkS", size=1.0, thick=0.16))
