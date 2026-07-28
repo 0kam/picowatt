@@ -24,3 +24,8 @@ fp-info-cache
 *.kicad_pcb-bak
 *.kicad_sch-bak
 hardware/gerber/
+
+# RStudio (created if a file gets opened with it by default)
+.Rhistory
+.RData
+.Rproj.user/
