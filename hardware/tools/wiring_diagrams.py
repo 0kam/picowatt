@@ -115,6 +115,7 @@ def board(power_only):
     e.append(screw(sx(74), sy(65)))
     e.append(screw(sx(79.08), sy(65)))
     e.append(text(sx(76.5), sy(55.6), "J5  GND", 12, weight="bold"))
+    e.append(text(sx(76.5), sy(52.0), "2口ともGND", 10, "#666"))
 
     # OLED
     e.append(f'<rect x="{sx(58.5):.0f}" y="{sy(32.5):.0f}" width="{S*25:.0f}" '
@@ -166,18 +167,17 @@ def box(x, w, name, terms):
 def power_svg():
     e = board(power_only=True)
     e += box(80, 160, "測定対象 (DUT)", [(130, "＋"), (200, "−")])
-    e += box(330, 160, "安定化電源", [(360, "−"), (460, "＋")])
-    e.append(wire(f"M 460,150 L 460,180 L {sx(25.5):.0f},180 "
-                  f"L {sx(25.5):.0f},{sy(63.9)-9:.0f}", RED))
-    e.append(wire(f"M {sx(18.5):.0f},{sy(63.9)-9:.0f} L {sx(18.5):.0f},205 "
+    e += box(330, 160, "安定化電源", [(360, "＋"), (460, "−")])
+    ytop = sy(63.9) - 9
+    yj5 = sy(65) - 9
+    e.append(wire(f"M 360,150 L 360,180 L {sx(25.5):.0f},180 "
+                  f"L {sx(25.5):.0f},{ytop:.0f}", RED))
+    e.append(wire(f"M {sx(18.5):.0f},{ytop:.0f} L {sx(18.5):.0f},205 "
                   f"L 130,205 L 130,159", RED))
-    e.append(wire("M 200,150 L 200,168 L 360,168 L 360,159", BLUE))
-    e.append(wire(f"M 360,168 L {sx(74):.0f},168 L {sx(74):.0f},{sy(65)-9:.0f}", BLUE))
-    e.append(dot(360, 168, BLUE))
-    e.append(label(305, 184, "電源の＋", RED))
-    e.append(label(152, 209, "DUT の＋へ", RED))
-    e.append(label(268, 172, "DUT の−", BLUE))
-    e.append(label(448, 172, "基準 GND", BLUE))
+    e.append(wire("M 200,150 L 200,196 " + hop_r(sx(25.5), 196)
+                  + f"L {sx(74):.0f},196 L {sx(74):.0f},{yj5:.0f}", BLUE))
+    e.append(wire(f"M 460,150 L 460,168 L {sx(79.08):.0f},168 "
+                  f"L {sx(79.08):.0f},{yj5:.0f}", BLUE))
     return frame("消費電力測定のつなぎ方（INA228 は J2 に 1 枚だけ）", e, 760, 700)
 
 
@@ -196,21 +196,14 @@ def efficiency_svg():
                   + hop_r(x_ch0_p, 210) + "L 305,210 L 305,159", RED))
     e.append(wire("M 270,150 L 270,185 " + hop_l(x_ch0_p, 185)
                   + "L 85,185 L 85,159", BLUE))
-    e.append(wire(f"M 85,185 L 40,185 L 40,655 L 700,655 L 700,200 "
+    e.append(wire(f"M 85,150 L 72,162 L 40,162 L 40,655 L 700,655 L 700,200 "
                   f"L {sx(79.08):.0f},200 L {sx(79.08):.0f},{sy(65)-9:.0f}", BLUE))
     e.append(wire(f"M 360,150 L 360,190 L {x_ch1_p:.0f},190 L {x_ch1_p:.0f},{ytop:.0f}", RED))
     e.append(wire(f"M {x_ch1_m:.0f},{ytop:.0f} L {x_ch1_m:.0f},215 "
                   + hop_r(x_ch1_p, 215) + "L 525,215 L 525,159", RED))
     e.append(wire("M 605,150 L 605,195 " + hop_l(525, 195)
                   + "L 400,195 L 400,159", BLUE))
-    e.append(dot(85, 185, BLUE))
-    e.append(label(192, 179, "電源＋", RED))
-    e.append(label(250, 214, "DCDC 入力＋へ", RED))
-    e.append(label(140, 189, "電源−へ", BLUE))
     e.append(label(370, 659, "基準 GND（遠回りで OK）", BLUE))
-    e.append(label(432, 194, "DCDC 出力＋", RED))
-    e.append(label(462, 219, "負荷の＋へ", RED))
-    e.append(label(557, 199, "負荷の−", BLUE))
     return frame("DC-DC 効率測定のつなぎ方（J2 = 入力側 / J3 = 出力側）", e, 760, 700)
 
 
