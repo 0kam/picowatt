@@ -460,7 +460,7 @@ def make_fp_ina():
         "extends +2.54/-17.78mm in Y; screw terminal faces -Y. "
         "Pads 5/6/7 (VBUS, VIN-, VIN+) carry the measured supply potential.",
         "adafruit ina228 power monitor breakout socket")]
-    p.append(fp_prop("Reference", "REF**", 0, -7.5, "F.SilkS"))
+    p.append(fp_prop("Reference", "REF**", 0, 4.6, "F.SilkS"))
     p.append(fp_prop("Value", "INA228_Breakout_Socket_1x08", 0, -19.5, "F.Fab", hide=True))
     p.append(fp_prop("Datasheet", "", 0, 0, "F.Fab", hide=True))
     p.append(fp_prop("Description", "", 0, 0, "F.Fab", hide=True))
@@ -728,8 +728,8 @@ def gr_line(x1, y1, x2, y2, layer, width=0.1):
             f'\t\t(layer {q(layer)}) (uuid {q(uid())})\n\t)')
 
 
-def gr_text(text, x, y, layer, size=1.2, thick=0.2, just="left"):
-    return (f'\t(gr_text {q(text)}\n\t\t(at {n(x)} {n(y)} 0)\n'
+def gr_text(text, x, y, layer, size=1.2, thick=0.2, just="left", angle=0):
+    return (f'\t(gr_text {q(text)}\n\t\t(at {n(x)} {n(y)} {n(angle)})\n'
             f'\t\t(layer {q(layer)}) (uuid {q(uid())})\n'
             f'\t\t(effects (font (size {n(size)} {n(size)}) (thickness {n(thick)}))'
             f' (justify {just}))\n\t)')
@@ -741,7 +741,7 @@ SILK_A = [
     "eff: DUT out -> ch1 VIN+ [15m] VIN- -> load",
 ]
 SILK_B = [
-    "ch0 = 0x40   ch1 = 0x41 (close A0)",
+    "J2: ch0 0x40 IN   J3: ch1 0x41 OUT (close A0)",
     "close VBus jumper on both INA228",
     "J2/J3 pins 5-7: NC, supply potential",
 ]
@@ -790,6 +790,17 @@ def make_pcb():
     tx, ty = K(60.0, 3.0)
     out.append(gr_text("J4 OLED  pin1=GND VDD SCK SDA", tx, ty, "F.SilkS",
                        size=0.9, thick=0.15))
+    # channel identity, vertical, outside the module outlines so it stays
+    # visible with the INA228s fitted
+    tx, ty = K(7.4, 50.0)
+    out.append(gr_text("ch0 0x40 IN", tx, ty, "F.SilkS",
+                       size=0.9, thick=0.15, angle=90))
+    tx, ty = K(37.4, 50.0)
+    out.append(gr_text("ch1 0x41 OUT", tx, ty, "F.SilkS",
+                       size=0.9, thick=0.15, angle=90))
+    # C1 polarity: the stock footprint's own "+" is only 0.5mm, print a big one
+    tx, ty = K(74.6, 48.0)
+    out.append(gr_text("+", tx, ty, "F.SilkS", size=1.6, thick=0.3))
     for line, cy in (("GND  <- PSU(-)", 55.5), ("R3/R4 = DNP", 52.5)):
         tx, ty = K(66.0, cy)
         out.append(gr_text(line, tx, ty, "F.SilkS", size=1.0, thick=0.16))
@@ -893,7 +904,8 @@ FP_LIB_TABLE = """(fp_lib_table
 
 def main():
     global ROOT_UUID, NET_IDX, LIB_SYMBOL_BLOCKS
-    ROOT_UUID = uid()
+    # fixed, so the expanded .kicad_pro committed alongside stays valid
+    ROOT_UUID = "fcbfad78-8a5f-4d41-ad3f-fd1eb8e8d204"
     NET_IDX = {name: i + 1 for i, name in enumerate(NETS)}
     PIN_NAMES.update({"J1": PICO_PINS, "J2": INA_PINS, "J3": INA_PINS,
                       "J4": OLED_PINS})
