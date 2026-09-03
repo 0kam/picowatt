@@ -26,7 +26,7 @@ from .calibration import CalibrationStore
 from .csv_logger import CsvLogger
 from .device import find_ports
 from .dialogs import AdvancedSettingsDialog, CalibrationDialog
-from .measure import integrate_region
+from .measure import check_vbus, integrate_region
 from .plots import CH_NAMES, LivePlots
 from .serial_link import SerialWorker
 
@@ -69,6 +69,12 @@ class MainWindow(QMainWindow):
         self.plot_timer.setInterval(33)  # ~30 Hz
         self.plot_timer.timeout.connect(self._refresh_plots)
         self.plot_timer.start()
+
+        # Bus-voltage plausibility check (floating GND / open VBus jumper).
+        self.health_timer = QTimer(self)
+        self.health_timer.setInterval(500)
+        self.health_timer.timeout.connect(self._check_bus_health)
+        self.health_timer.start()
 
         # Manual pan/zoom on the time axis takes over from follow mode.
         self.plots.plots[0].getViewBox().sigRangeChangedManually.connect(
@@ -167,6 +173,15 @@ class MainWindow(QMainWindow):
         for w in (self.status_conn, self.status_rate, self.status_drops, self.status_log):
             self.statusBar().addWidget(w)
             w.setMargin(4)
+        # Right-aligned, red; only visible while a channel's VBUS looks wrong.
+        self.status_warn = QLabel("")
+        self.status_warn.setMargin(4)
+        self.status_warn.setStyleSheet("color: #c62828; font-weight: bold;")
+        self.status_warn.setToolTip(
+            "The bus voltage cannot be a real DC supply. Usual causes: the supply "
+            "'-' is not connected to the GND terminal (J5), or the VBus jumper on "
+            "the INA228 is open. See docs/troubleshooting.md")
+        self.statusBar().addPermanentWidget(self.status_warn)
 
     def _build_region_dock(self) -> None:
         self.region_dock = QDockWidget("Region", self)
@@ -231,6 +246,7 @@ class MainWindow(QMainWindow):
         self.cal_btn.setEnabled(False)
         self.adv_btn.setEnabled(False)
         self.status_conn.setText("disconnected")
+        self.status_warn.setText("")
 
     def _on_error(self, msg: str) -> None:
         QMessageBox.warning(self, "picowatt", msg)
@@ -405,6 +421,29 @@ class MainWindow(QMainWindow):
 
     def _on_stats(self, gaps: int, _drops: int) -> None:
         self.status_rate.setText(f"frame gaps: {gaps}")
+
+    def _check_bus_health(self) -> None:
+        """Warn in the status bar when VBUS over the last second is implausible."""
+        if not self.streaming:
+            return
+        nch = 2 if self.mode == 1 else 1
+        msgs = []
+        for c in range(nch):
+            buf = self.buffers[c]
+            t_last = buf.latest_t()
+            if t_last is None:
+                continue
+            _t, v, _i = buf.window(t_last - 1.0, t_last)
+            if len(v) < 10:
+                continue
+            h = check_vbus(v)
+            if h.problem:
+                msgs.append(f"ch{c}: {h.problem}")
+        if msgs:
+            self.status_warn.setText("\u26a0 " + "   ".join(msgs)
+                                     + " \u2014 check GND link to J5 / VBus jumper")
+        else:
+            self.status_warn.setText("")
 
     def _reset_view(self) -> None:
         self.plots.reset_view()

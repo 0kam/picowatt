@@ -110,8 +110,8 @@ DUT出力(−) ←────────────────────�
 **電源の − は必ず picowatt の GND（キャリア基板なら J5）に繋ぐ。** INA228 は
 バス電圧を自分の GND ピン基準で測るので、この 1 本が無いと基板が電源系から
 浮き、VBUS が 0 V と −数十 V の間を 50/60 Hz で振動する（実在しない電圧）。
-`picowatt-cli` はこの状態を検出して `WARNING: bus voltage goes negative` を
-出す。図解は [docs/troubleshooting.md](docs/troubleshooting.md)。
+GUI はステータスバー右端に赤字の警告を出し、`picowatt-cli` は
+`WARNING: bus voltage goes negative` を出す。図解は [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ![GND リンクを忘れるとこうなる](hardware/docs/wiring-floating-gnd.svg)
 

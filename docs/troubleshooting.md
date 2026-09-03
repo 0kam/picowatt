@@ -17,7 +17,9 @@
 
 **症状**: 電源を入れても VBUS が安定せず、0 V と −50 V 前後の間を商用電源の
 周波数（東日本 50 Hz / 西日本 60 Hz）で往復する。電流値はそれらしく見える
-ことが多い。`picowatt-cli` は次を出す。
+ことが多い。GUI はステータスバー右端に赤字で
+`⚠ ch0: bus voltage goes negative (min -53.1 V) — check GND link to J5 / VBus jumper`
+を出し続け、`picowatt-cli` は次を出す。
 
 ```
        vbus -26.1234 V (sd 18.7, min -53.1, max 0.2)  current 120.0 mA (sd 0.4)
