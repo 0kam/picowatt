@@ -171,6 +171,21 @@ ch1 用の INA228 は裏の A0 を閉じて **J3**（右、シルク `ch1 0x41 O
 絶縁型を測る場合は ch1 のバス電圧の基準が浮いてしまうので、OUT− 側も
 基準電位へ 1 点で接続すること。
 
+### よくある間違い：電源の − を J5 に繋ぎ忘れる
+
+INA228 は VBUS を **自分の GND ピン基準**で測る。GND ピンは基板の GND ベタに
+落ちているだけなので、電源の − が J5 に来ていないと基板全体が電源系から浮き、
+VBUS が 0 V と −数十 V の間を 50/60 Hz で振動する。電流はそれらしく出るので
+気付きにくい。
+
+![GND リンクを忘れた配線](docs/wiring-floating-gnd.svg)
+
+![VBUS は INA228 の GND ピン基準](docs/vbus-reference.svg)
+
+電源の − から J5 の空き口へ 1 本足せば直る。`picowatt-cli` はこの状態を
+`WARNING: bus voltage goes negative` として報告する。他の症状は
+[docs/troubleshooting.md](../docs/troubleshooting.md)。
+
 図は `tools/wiring_diagrams.py` が基板と同じ座標データから生成している。
 
 ## 配線
@@ -246,7 +261,7 @@ R1〜R4 は**配線の通り道の上に直接置いてある**。信号側の�
 | `routes.py` | 配線をキャリア座標のポリラインで定義 |
 | `routelib.py` | 基板の読み取り、クリアランス／接続性の事前チェック、配線の書き出し |
 | `audit.py` | 保存済み基板から配線を読み直し、実クリアランス余裕を報告 |
-| `wiring_diagrams.py` | README 用の配線図 (docs/wiring-*.svg) を生成 |
+| `wiring_diagrams.py` | README 用の配線図 (docs/wiring-*.svg, docs/vbus-reference.svg) を生成 |
 
 再生成する場合は `generate.py` → `routelib.emit()` → `pcbnew` でゾーン塗り、の順。
 `audit.py` は KiCad の DRC とは独立に幾何を検算するので、変更後の確認に使える。

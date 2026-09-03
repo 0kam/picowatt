@@ -134,7 +134,7 @@ def board(power_only):
     return e
 
 
-def frame(title, body, width, height):
+def frame(title, body, width, height, footer=None):
     head = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
             f'height="{height}" viewBox="0 0 {width} {height}">'
             f'<defs>'
@@ -147,9 +147,10 @@ def frame(title, body, width, height):
             f'</defs>'
             f'<rect width="{width}" height="{height}" fill="#ffffff"/>')
     head += text(18, 26, title, 17, INK, anchor="start", weight="bold")
-    head += text(18, height - 12,
-                 "赤 = ＋側の線　青 = −側の線　⌒ = 交差（接続しない）　"
-                 "端子台の VBus には何も繋がない", 12, "#555", anchor="start")
+    if footer is None:
+        footer = ("赤 = ＋側の線　青 = −側の線　⌒ = 交差（接続しない）　"
+                  "端子台の VBus には何も繋がない")
+    head += text(18, height - 12, footer, 12, "#555", anchor="start")
     return head + "".join(body) + "</svg>"
 
 
@@ -164,7 +165,13 @@ def box(x, w, name, terms):
     return e
 
 
-def power_svg():
+def power_svg(missing_gnd=False):
+    """Bench hookup for power measurement.
+
+    missing_gnd=True draws the classic mistake instead: supply "-" wired
+    straight to the DUT and nothing brought to J5.  The board GND then
+    floats and VBUS reads mains hum (0 ... -50 V at 50/60 Hz).
+    """
     e = board(power_only=True)
     e += box(80, 160, "測定対象 (DUT)", [(130, "＋"), (200, "−")])
     e += box(330, 160, "安定化電源", [(360, "＋"), (460, "−")])
@@ -174,11 +181,125 @@ def power_svg():
                   f"L {sx(25.5):.0f},{ytop:.0f}", RED))
     e.append(wire(f"M {sx(18.5):.0f},{ytop:.0f} L {sx(18.5):.0f},205 "
                   f"L 130,205 L 130,159", RED))
-    e.append(wire("M 200,150 L 200,196 " + hop_r(sx(25.5), 196)
-                  + f"L {sx(74):.0f},196 L {sx(74):.0f},{yj5:.0f}", BLUE))
-    e.append(wire(f"M 460,150 L 460,168 L {sx(79.08):.0f},168 "
-                  f"L {sx(79.08):.0f},{yj5:.0f}", BLUE))
-    return frame("消費電力測定のつなぎ方（INA228 は J2 に 1 枚だけ）", e, 760, 700)
+    if not missing_gnd:
+        e.append(wire("M 200,150 L 200,196 " + hop_r(sx(25.5), 196)
+                      + f"L {sx(74):.0f},196 L {sx(74):.0f},{yj5:.0f}", BLUE))
+        e.append(wire(f"M 460,150 L 460,168 L {sx(79.08):.0f},168 "
+                      f"L {sx(79.08):.0f},{yj5:.0f}", BLUE))
+        return frame("消費電力測定のつなぎ方（INA228 は J2 に 1 枚だけ）", e, 760, 700)
+
+    # --- the mistake: DUT "-" goes straight back to the supply ---------------
+    e.append(wire("M 200,150 L 200,168 L 460,168 L 460,159", BLUE))
+    e.append(label(330, 190, "− は電源へ直行（これ自体は間違いではない）", BLUE, 11))
+    # J5 left empty: dashed ghost of the missing link + a big cross
+    e.append(f'<path d="M 460,168 L {sx(79.08):.0f},168 L {sx(79.08):.0f},{yj5:.0f}" '
+             f'fill="none" stroke="{FAINT}" stroke-width="4.5" '
+             f'stroke-dasharray="9 8" stroke-linecap="round"/>')
+    cx, cy = sx(76.5), sy(65)
+    e.append(f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="30" fill="none" '
+             f'stroke="{RED}" stroke-width="4"/>')
+    e.append(f'<line x1="{cx-21:.0f}" y1="{cy-21:.0f}" x2="{cx+21:.0f}" y2="{cy+21:.0f}" '
+             f'stroke="{RED}" stroke-width="4"/>')
+    e.append(f'<line x1="{cx+21:.0f}" y1="{cy-21:.0f}" x2="{cx-21:.0f}" y2="{cy+21:.0f}" '
+             f'stroke="{RED}" stroke-width="4"/>')
+    e.append(label(cx - 30, cy + 84, "J5 に何も来ていない", RED, 13))
+    e.append(label(cx - 30, cy + 104, "→ 基板の GND が宙に浮く", RED, 12))
+
+    # --- what the app then shows: the VBUS trace -----------------------------
+    px, py, pw, ph = 640, 230, 330, 200
+    e.append(f'<rect x="{px}" y="{py}" width="{pw}" height="{ph}" rx="8" '
+             f'fill="#ffffff" stroke="#666" stroke-width="1.8"/>')
+    e.append(text(px + pw/2, py + 24, "このとき VBUS はこう見える", 13, weight="bold"))
+    ax0, ax1 = px + 52, px + pw - 16          # plot area (x)
+    y0, y53 = py + 50, py + ph - 60           # 0 V and -53 V rows
+    e.append(f'<line x1="{ax0}" y1="{y0}" x2="{ax1}" y2="{y0}" stroke="#999" stroke-width="1"/>')
+    e.append(f'<line x1="{ax0}" y1="{y53}" x2="{ax1}" y2="{y53}" stroke="#999" '
+             f'stroke-width="1" stroke-dasharray="4 4"/>')
+    e.append(text(ax0 - 6, y0 + 4, "0 V", 11, "#555", anchor="end"))
+    e.append(text(ax0 - 6, y53 + 4, "−53 V", 11, RED, anchor="end", weight="bold"))
+    import math
+    pts = []
+    n = 120
+    for k in range(n + 1):
+        f = k / n
+        x = ax0 + (ax1 - ax0) * f
+        y = y0 + (y53 - y0) * (0.5 - 0.5 * math.cos(2 * math.pi * 3 * f))
+        pts.append(f"{x:.1f},{y:.1f}")
+    e.append(f'<polyline points="{" ".join(pts)}" fill="none" stroke="{RED}" '
+             f'stroke-width="2.5" stroke-linejoin="round"/>')
+    e.append(f'<line x1="{ax0}" y1="{y53+14}" x2="{ax0 + (ax1-ax0)/3:.0f}" y2="{y53+14}" '
+             f'stroke="#555" stroke-width="1.2"/>')
+    e.append(text(ax0 + (ax1 - ax0) / 6, y53 + 30, "20 ms = 50 Hz（商用電源）", 11, "#555"))
+    e.append(text(px + pw/2, py + ph - 6, "0 V と −数十 V の間を往復＝実在しない電圧", 11, RED))
+    e.append(label(px + pw/2, py + ph + 30, "CLI は WARNING: bus voltage goes negative を出す", "#555", 11))
+
+    return frame("よくある間違い：電源の − を J5 に繋ぎ忘れる", e, 1000, 700,
+                 footer="灰色の破線 = 本来あるべき線。安定化電源の − から J5 へ 1 本足せば直る")
+
+
+def vbus_reference_svg():
+    """Concept figure: what VBUS is measured against, and why J5 matters."""
+    W, H = 820, 556
+    e = []
+    # --- INA228 module block -------------------------------------------------
+    bx0, by0, bx1, by1 = 250, 80, 520, 300
+    e.append(f'<rect x="{bx0}" y="{by0}" width="{bx1-bx0}" height="{by1-by0}" rx="10" '
+             f'fill="#faf8f1" stroke="#9aa3ad" stroke-width="1.8"/>')
+    e.append(text((bx0 + bx1) / 2, by0 + 24, "INA228 モジュール（ch0）", 14, weight="bold"))
+    y_p, y_m, x_sh = 130, 200, 330         # VIN+ / VIN- rows, shunt column
+    # shunt path VIN+ -> 15 mOhm -> VIN-
+    e.append(f'<line x1="{bx0}" y1="{y_p}" x2="{x_sh}" y2="{y_p}" stroke="{RED}" stroke-width="3"/>')
+    e.append(f'<line x1="{x_sh}" y1="{y_p}" x2="{x_sh}" y2="{y_p+20}" stroke="{RED}" stroke-width="3"/>')
+    e.append(f'<rect x="{x_sh-17}" y="{y_p+20}" width="34" height="30" fill="#e8e8e8" stroke="#888"/>')
+    e.append(text(x_sh, y_p + 39, "15mΩ", 9, "#444"))
+    e.append(f'<line x1="{x_sh}" y1="{y_p+50}" x2="{x_sh}" y2="{y_m}" stroke="{RED}" stroke-width="3"/>')
+    e.append(f'<line x1="{x_sh}" y1="{y_m}" x2="{bx0}" y2="{y_m}" stroke="{RED}" stroke-width="3"/>')
+    e.append(f'<circle cx="{bx0}" cy="{y_p}" r="6" fill="{RED}"/>')
+    e.append(f'<circle cx="{bx0}" cy="{y_m}" r="6" fill="{RED}"/>')
+    e.append(text(bx0 - 8, y_p - 9, "VIN+", 12, anchor="end", weight="bold"))
+    e.append(text(bx0 - 8, y_m - 9, "VIN−", 12, anchor="end", weight="bold"))
+    # VBus jumper -> A/D
+    x_ad = 410
+    e.append(f'<line x1="{x_sh}" y1="{y_p}" x2="{x_ad}" y2="{y_p}" stroke="{RED}" '
+             f'stroke-width="3" stroke-dasharray="6 4"/>')
+    e.append(text(x_sh + 6, y_p - 10, "VBusジャンパ(閉)", 9, "#555", anchor="start"))
+    e.append(f'<path d="M {x_ad},{y_p-20} L {x_ad+45},{y_p} L {x_ad},{y_p+20} z" '
+             f'fill="#d7dde8" stroke="#555" stroke-width="1.5"/>')
+    e.append(text(x_ad + 13, y_p + 4, "A/D", 10, "#333"))
+    e.append(text(x_ad + 55, y_p + 4, "= VBUS", 12, anchor="start", weight="bold"))
+    # A/D reference -> GND pin (bottom centre of the block)
+    x_g = 385
+    e.append(f'<line x1="{x_ad}" y1="{y_p+20}" x2="{x_ad}" y2="{y_m+60}" stroke="{BLUE}" stroke-width="3"/>')
+    e.append(f'<line x1="{x_ad}" y1="{y_m+60}" x2="{x_g}" y2="{y_m+60}" stroke="{BLUE}" stroke-width="3"/>')
+    e.append(f'<line x1="{x_g}" y1="{y_m+60}" x2="{x_g}" y2="{by1}" stroke="{BLUE}" stroke-width="3"/>')
+    e.append(f'<circle cx="{x_g}" cy="{by1}" r="6" fill="{BLUE}"/>')
+    e.append(text(x_g + 12, by1 + 16, "GND ピン", 12, anchor="start", weight="bold"))
+    e.append(text(x_sh, y_m + 40, "A/D は VBUS を", 11, "#555"))
+    e.append(text(x_sh, y_m + 56, "自分の GND ピン基準で測る", 11, "#555"))
+
+    # --- carrier GND plane + J5 ---------------------------------------------
+    y_pl = 400
+    e.append(f'<rect x="230" y="{y_pl}" width="330" height="30" rx="6" fill="#dde7d6" stroke="#5a6b5a"/>')
+    e.append(text(395, y_pl + 20, "キャリア基板の GND ベタ（Pico の GND も同電位）", 11, "#333"))
+    e.append(f'<line x1="{x_g}" y1="{by1+6}" x2="{x_g}" y2="{y_pl}" stroke="{BLUE}" stroke-width="3"/>')
+    e.append(f'<rect x="560" y="{y_pl-12}" width="62" height="50" rx="4" fill="{TERM}"/>')
+    e.append(screw(580, y_pl + 12)); e.append(screw(602, y_pl + 12))
+    e.append(text(591, y_pl + 56, "J5 (GND)", 12, weight="bold"))
+
+    # --- bench: supply on the left, DUT on the right ------------------------
+    e += box(30, 130, "安定化電源", [(60, "−"), (130, "＋")])
+    e += box(660, 130, "測定対象", [(690, "＋"), (760, "−")])
+    e.append(wire(f"M 130,150 L 130,172 L 228,172 L 228,{y_p} L {bx0-6},{y_p}", RED, marker=False))
+    e.append(wire(f"M {bx0-6},{y_m} L 212,{y_m} L 212,325 " + hop_r(x_g, 325)
+                  + "L 690,325 L 690,159", RED))
+    e.append(wire("M 760,150 L 760,345 " + hop_l(x_g, 345) + "L 60,345 L 60,159", BLUE))
+    e.append(dot(60, 345, BLUE))
+    # THE GND link
+    e.append(wire(f"M 60,345 L 60,470 L 580,470 L 580,{y_pl+30}", BLUE))
+    e.append(label(330, 495, "GND リンク：電源の − → J5。これが無いと GND ピンの電位が決まらず、", BLUE, 11))
+    e.append(label(330, 512, "浮いた基板が商用電源の 50/60 Hz を拾って VBUS が暴れる", BLUE, 11))
+    return frame("VBUS は「INA228 の GND ピン」基準で測られる", e, W, H,
+                 footer="⌒ = 交差（接続しない）　GND リンクにはほぼ電流が流れないが、無いと測定の基準が消える")
 
 
 def efficiency_svg():
@@ -211,7 +332,9 @@ def main():
     out = os.path.join(os.path.dirname(__file__), "..", "docs")
     os.makedirs(out, exist_ok=True)
     for name, svg in (("wiring-power.svg", power_svg()),
-                      ("wiring-efficiency.svg", efficiency_svg())):
+                      ("wiring-efficiency.svg", efficiency_svg()),
+                      ("wiring-floating-gnd.svg", power_svg(missing_gnd=True)),
+                      ("vbus-reference.svg", vbus_reference_svg())):
         with open(os.path.join(out, name), "w") as f:
             f.write(svg)
         print("wrote", os.path.join(out, name))

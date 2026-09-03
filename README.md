@@ -49,7 +49,8 @@ GUI: Connect → Start でストリーミング開始。Measure チェックで�
 任意区間を選択して Wh/Ah を積算。Log CSV… で全サンプルをファイルに記録。
 Calibrate… でゼロ校正・1点ゲイン校正(ボードIDごとに自動保存され、接続時に
 自動適用)。プロトコル仕様は [docs/protocol.md](docs/protocol.md)、実測性能は
-[docs/verification.md](docs/verification.md) を参照。
+[docs/verification.md](docs/verification.md) を参照。値がおかしいときは
+[docs/troubleshooting.md](docs/troubleshooting.md)（症状から引ける）。
 
 ## 概要
 
@@ -105,6 +106,14 @@ I2C プルアップは INA228 基板の 10kΩ が効くため追加不要。
 DUT出力(+) → #2 VIN+ ─[15mΩ]─ #2 VIN− → 電子負荷(+)
 DUT出力(−) ←───────────────────────────── 電子負荷(−)
 ```
+
+**電源の − は必ず picowatt の GND（キャリア基板なら J5）に繋ぐ。** INA228 は
+バス電圧を自分の GND ピン基準で測るので、この 1 本が無いと基板が電源系から
+浮き、VBUS が 0 V と −数十 V の間を 50/60 Hz で振動する（実在しない電圧）。
+`picowatt-cli` はこの状態を検出して `WARNING: bus voltage goes negative` を
+出す。図解は [docs/troubleshooting.md](docs/troubleshooting.md)。
+
+![GND リンクを忘れるとこうなる](hardware/docs/wiring-floating-gnd.svg)
 
 GND の共通接続は 1 点のみ。複数箇所で接続するとループになる。
 

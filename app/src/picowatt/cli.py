@@ -18,6 +18,7 @@ import numpy as np
 
 from . import protocol as proto
 from .device import Device, DeviceError, find_ports
+from .measure import check_vbus
 
 
 class TimeUnwrapper:
@@ -89,6 +90,8 @@ def main() -> int:
         unwrap = TimeUnwrapper()
         lsb = [cfg.ch[c].current_lsb for c in range(2)]
         n_samples = np.zeros(2, dtype=int)
+        v_acc: list[list[np.ndarray]] = [[], []]
+        i_acc: list[list[np.ndarray]] = [[], []]
         gaps = 0
         last_seq: int | None = None
         t_first: float | None = None
@@ -107,10 +110,14 @@ def main() -> int:
                         if t_first is None:
                             t_first = t_s[0]
                         t_last = t_s[-1]
+                    v = rec["vbus_raw"] * proto.VBUS_LSB_V
                     for c in range(2):
-                        n_samples[c] += int(np.sum(rec["ch"] == c))
+                        m = rec["ch"] == c
+                        n_samples[c] += int(np.sum(m))
+                        if m.any():
+                            v_acc[c].append(v[m])
+                            i_acc[c].append(rec["curr_raw"][m] * lsb[c])
                     if writer is not None:
-                        v = rec["vbus_raw"] * proto.VBUS_LSB_V
                         for k in range(len(rec)):
                             ch = int(rec["ch"][k])
                             i_a = float(rec["curr_raw"][k]) * lsb[ch]
@@ -129,6 +136,21 @@ def main() -> int:
         for c in range(nch):
             if span > 0:
                 print(f"  ch{c}: {n_samples[c]} samples, {n_samples[c] / span:.1f} Hz")
+            if v_acc[c]:
+                v_all = np.concatenate(v_acc[c])
+                i_all = np.concatenate(i_acc[c])
+                h = check_vbus(v_all)
+                print(f"       vbus {h.mean:.4f} V (sd {h.sd:.4f}, "
+                      f"min {h.vmin:.3f}, max {h.vmax:.3f})  "
+                      f"current {i_all.mean() * 1e3:.4f} mA (sd {i_all.std() * 1e3:.4f})")
+                if h.problem:
+                    # A bus that swings between 0 V and tens of volts (often
+                    # negative) is mains pickup on a floating node, not a
+                    # real supply. Say so instead of silently averaging it.
+                    print(f"       WARNING: ch{c} {h.problem} - the supply '-' is "
+                          "probably not connected to the GND terminal (J5), or the "
+                          "VBus jumper is open. See docs/troubleshooting.md",
+                          file=sys.stderr)
         print(f"frame gaps: {gaps}  device ring drops: {cfg_after.drops}")
         if args.csv:
             print(f"wrote {args.csv}")
