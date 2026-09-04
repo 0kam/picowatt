@@ -4,7 +4,7 @@
 // ---- Firmware version ----
 #define FW_VERSION_MAJOR 0
 #define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 0
+#define FW_VERSION_PATCH 1
 
 // ---- I2C bus ----
 #define PW_I2C            i2c0

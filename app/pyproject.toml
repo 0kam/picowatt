@@ -1,6 +1,6 @@
 [project]
 name = "picowatt"
-version = "0.1.0"
+version = "0.1.1"
 description = "PC application for the picowatt power measurement system (Pico 2 + INA228)"
 readme = "README.md"
 requires-python = ">=3.11"
