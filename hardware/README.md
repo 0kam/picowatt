@@ -261,7 +261,7 @@ R1〜R4 は**配線の通り道の上に直接置いてある**。信号側の�
 | `routes.py` | 配線をキャリア座標のポリラインで定義 |
 | `routelib.py` | 基板の読み取り、クリアランス／接続性の事前チェック、配線の書き出し |
 | `audit.py` | 保存済み基板から配線を読み直し、実クリアランス余裕を報告 |
-| `wiring_diagrams.py` | README 用の配線図 (docs/wiring-*.svg, docs/vbus-reference.svg) を生成 |
+| `wiring_diagrams.py` | README 用の配線図 (docs/wiring-*.svg, docs/breadboard-*.svg, docs/vbus-reference.svg) を生成 |
 
 再生成する場合は `generate.py` → `routelib.emit()` → `pcbnew` でゾーン塗り、の順。
 `audit.py` は KiCad の DRC とは独立に幾何を検算するので、変更後の確認に使える。

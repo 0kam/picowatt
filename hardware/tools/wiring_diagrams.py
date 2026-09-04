@@ -328,13 +328,170 @@ def efficiency_svg():
     return frame("DC-DC 効率測定のつなぎ方（J2 = 入力側 / J3 = 出力側）", e, 760, 700)
 
 
+
+# ---------------------------------------------------------------------------
+# Breadboard hookup (no carrier board)
+# ---------------------------------------------------------------------------
+
+GREEN, ORANGE = "#2e7d32", "#ef6c00"          # SDA / SCL
+RAIL_Y = {"3V3": 560, "GND": 585, "SDA": 610, "SCL": 635}
+RAIL_C = {"3V3": RED, "GND": BLUE, "SDA": GREEN, "SCL": ORANGE}
+
+
+def rtext(x, y, t, size=8, fill=INK):
+    """Text rotated -90 deg (reads bottom-to-top), anchored at its start."""
+    return (f'<text x="{x:.0f}" y="{y:.0f}" font-size="{size}" fill="{fill}" '
+            f'text-anchor="start" font-family="sans-serif" '
+            f'transform="rotate(-90 {x:.0f} {y:.0f})">{esc(t)}</text>')
+
+
+def thin(d, color, faded=False):
+    op = ' stroke-opacity="0.25"' if faded else ""
+    return (f'<path d="{d}" fill="none" stroke="{color}" stroke-width="3" '
+            f'stroke-linejoin="round" stroke-linecap="round"{op}/>')
+
+
+def bb_ina(x0, ch, color, note, faded=False):
+    """INA228 breakout: screw terminals on top, 8-pin header at the bottom."""
+    y0, y1 = 230, 400
+    e = [f'<rect x="{x0}" y="{y0}" width="160" height="{y1-y0}" rx="4" '
+         f'fill="{MODULE}" stroke="#9aa3ad" stroke-width="1.5"/>']
+    e.append(f'<rect x="{x0+55}" y="{y0-8}" width="100" height="44" rx="3" fill="{TERM}"/>')
+    for k, nm in enumerate(("VIN−", "VBus", "VIN+")):
+        sx_ = x0 + 70 + 35 * k
+        e.append(screw(sx_, y0 + 14))
+        e.append(text(sx_, y0 + 50, nm, 10, "#999" if nm == "VBus" else INK,
+                      weight="normal" if nm == "VBus" else "bold"))
+    e.append(text(x0 + 80, y0 + 95, "INA228", 12, "#8a8a8a"))
+    e.append(text(x0 + 80, y0 + 112, note, 9, "#777"))
+    pins = ("VIN", "GND", "SCL", "SDA", "VBUS", "VIN-", "VIN+", "ALRT")
+    for k, nm in enumerate(pins):
+        px = x0 + 10 + 20 * k
+        e.append(f'<circle cx="{px}" cy="{y1-6}" r="3.5" fill="#8b8b83"/>')
+        e.append(rtext(px + 3, y1 - 14, nm, 8, "#555"))
+    e.append(f'<rect x="{x0-4}" y="{y1+8}" width="168" height="20" rx="10" fill="{color}"/>')
+    e.append(text(x0 + 80, y1 + 22, ch, 11, "#ffffff", weight="bold"))
+    if faded:
+        e.append(f'<rect x="{x0-6}" y="{y0-12}" width="172" height="{y1-y0+45}" '
+                 f'rx="4" fill="#ffffff" fill-opacity="0.6"/>')
+    return e
+
+
+def bb_pico():
+    """Pico 2 seen from the top, USB up: pins 1-20 down the left, 40-21 down the right."""
+    x0, x1, y0 = 70, 180, 220
+    e = [f'<rect x="{x0}" y="{y0}" width="{x1-x0}" height="315" rx="4" '
+         f'fill="{MODULE}" stroke="#9aa3ad" stroke-width="1.5"/>',
+         f'<rect x="{(x0+x1)/2-16}" y="{y0-10}" width="32" height="22" fill="#c9c9c9" stroke="#8a8a8a"/>',
+         text((x0 + x1) / 2, y0 + 6, "USB", 8, "#666"),
+         text((x0 + x1) / 2, y0 + 170, "Pico 2", 14, weight="bold"),
+         text((x0 + x1) / 2, y0 + 188, "（上から見た図）", 9, "#777")]
+    for k in range(20):
+        y = y0 + 15 + 15 * k
+        for x in (x0, x1):
+            e.append(f'<circle cx="{x}" cy="{y}" r="3.5" fill="#8b8b83"/>')
+        e.append(text(x0 + 10, y + 3, str(k + 1), 7, "#999", anchor="start"))
+        e.append(text(x1 - 10, y + 3, str(40 - k), 7, "#999", anchor="end"))
+    return e
+
+
+def pin_y(n):
+    return 235 + 15 * ((n - 1) if n <= 20 else (40 - n))
+
+
+def breadboard_svg(efficiency=False):
+    W, H = 920, 750
+    e = ['<g transform="translate(0,30)">'] + bb_pico()
+    e += bb_ina(260, "#1 = ch0 0x40 入力", "#b26a00", "A0 は開けたまま")
+    e += bb_ina(470, "#2 = ch1 0x41 出力", "#00796b",
+                "裏の A0 を閉じる" if efficiency else "効率測定のときだけ", faded=not efficiency)
+    # OLED
+    e.append('<rect x="690" y="270" width="140" height="130" rx="3" fill="#2b2b33"/>')
+    e.append('<rect x="702" y="290" width="116" height="70" fill="#10131f"/>')
+    e.append(text(760, 284, "OLED SSD1306", 10, "#cccccc"))
+    for k, nm in enumerate(("GND", "VDD", "SCK", "SDA")):
+        px = 730 + 20 * k
+        e.append(f'<circle cx="{px}" cy="394" r="3.5" fill="#8b8b83"/>')
+        e.append(rtext(px + 3, 386, nm, 8, "#cccccc"))
+    e.append(text(760, 420, "ピン順はロットで違う。実物のシルクで確認", 9, "#c62828"))
+
+    # --- rails --------------------------------------------------------------
+    taps = {"3V3": (180, pin_y(36), 210), "GND": (180, pin_y(38), 225),
+            "SDA": (70, pin_y(6), 52), "SCL": (70, pin_y(7), 40)}
+    for nm, (px, py, vx) in taps.items():
+        y = RAIL_Y[nm]
+        e.append(thin(f"M {px},{py} L {vx},{py} L {vx},{y} L 880,{y}", RAIL_C[nm]))
+        e.append(dot(px, py, RAIL_C[nm]))
+        e.append(label(vx if vx > 100 else 46, y - 7 if vx > 100 else y + 4, nm, RAIL_C[nm], 10))
+    e.append(text(186, pin_y(36) - 6, "pin36 3V3 OUT", 8, RED, anchor="start"))
+    e.append(text(186, pin_y(38) - 6, "pin38 GND", 8, BLUE, anchor="start"))
+    e.append(text(64, pin_y(6) - 6, "pin6 GP4 SDA", 8, GREEN, anchor="end"))
+    e.append(text(64, pin_y(7) + 12, "pin7 GP5 SCL", 8, ORANGE, anchor="end"))
+
+    # device drops onto the rails
+    def drops(x0, faded=False):
+        for k, nm in enumerate(("3V3", "GND", "SCL", "SDA")):
+            px = x0 + 10 + 20 * k
+            e.append(thin(f"M {px},394 L {px},{RAIL_Y[nm]}", RAIL_C[nm], faded))
+            if not faded:
+                e.append(dot(px, RAIL_Y[nm], RAIL_C[nm]))
+    drops(260)
+    drops(470, faded=not efficiency)
+    for k, nm in enumerate(("GND", "3V3", "SCL", "SDA")):
+        px = 730 + 20 * k
+        e.append(thin(f"M {px},394 L {px},{RAIL_Y[nm]}", RAIL_C[nm]))
+        e.append(dot(px, RAIL_Y[nm], RAIL_C[nm]))
+
+    # --- bench side: boxes and the power path --------------------------------
+    ysc = 230 + 14 - 9                 # top of the terminal screws
+    v1m, v1p = 330, 400                # INA #1 VIN- / VIN+ screws
+    v2m, v2p = 540, 610                # INA #2
+    if not efficiency:
+        e += box(40, 160, "測定対象 (DUT)", [(70, "−"), (170, "＋")])
+        e += box(470, 160, "安定化電源", [(500, "＋"), (600, "−")])
+        e.append(wire(f"M 500,150 L 500,180 L {v1p},180 L {v1p},{ysc}", RED))
+        e.append(wire(f"M {v1m},{ysc} L {v1m},200 L 170,200 L 170,159", RED))
+        e.append(wire("M 600,150 L 600,205 L 880,205 L 880,585", BLUE))
+        e.append(wire("M 70,150 L 70,185 L 24,185 L 24,20 L 880,20 L 880,205", BLUE, marker=False))
+        e.append(dot(880, 205, BLUE))
+        title = "ブレッドボード配線：消費電力測定（INA228 1 枚）"
+    else:
+        e += box(20, 140, "安定化電源", [(45, "−"), (125, "＋")])
+        e += box(230, 200, "DC-DC (DUT)", [(250, "−"), (290, "＋"), (370, "＋"), (410, "−")])
+        e.append(text(270, 122, "入力", 10, "#666"))
+        e.append(text(390, 122, "出力", 10, "#666"))
+        e += box(500, 150, "電子負荷", [(530, "＋"), (620, "−")])
+        e.append(wire(f"M 125,150 L 125,195 " + hop_r(290, 195) + f"L {v1p},195 L {v1p},{ysc}", RED))
+        e.append(wire(f"M {v1m},{ysc} L {v1m},210 L 290,210 L 290,159", RED))
+        e.append(wire(f"M 370,150 L 370,190 " + hop_r(530, 190) + f"L {v2p},190 L {v2p},{ysc}", RED))
+        e.append(wire(f"M {v2m},{ysc} L {v2m},212 L 530,212 L 530,159", RED))
+        e.append(wire("M 410,150 L 410,178 " + hop_r(530, 178) + "L 620,178 L 620,159", BLUE))
+        e.append(wire("M 620,150 L 620,205 L 880,205 L 880,585", BLUE))
+        e.append(wire("M 45,150 L 45,170 L 24,170 L 24,20 L 880,20 L 880,205", BLUE, marker=False))
+        e.append(wire("M 250,150 L 250,166 L 214,166 L 214,20", BLUE, marker=False))
+        e.append(dot(214, 20, BLUE)); e.append(dot(880, 205, BLUE))
+        title = "ブレッドボード配線：DC-DC 効率測定（INA228 2 枚）"
+    e.append(label(835, 470, "GND リンク", BLUE, 11))
+    e.append(label(835, 487, "電源の − → GND レール", BLUE, 9))
+    e.append(label(835, 504, "忘れると VBUS が暴れる", RED, 9))
+    e.append(text(560, 665, "レール = ブレッドボードの横一列（または電源レール）。● = 接続、●の無い交差は繋がっていない",
+                  10, "#555"))
+    e.append(text(560, 680, "I2C プルアップは INA228 基板上の 10kΩ で足りる。INA228 の VBus ジャンパは両方とも閉じる",
+                  10, "#555"))
+    e.append("</g>")
+    return frame(title, e, W, H,
+                 footer="赤 = ＋側 / 3V3　青 = −側 / GND　緑 = SDA　橙 = SCL　⌒ = 交差（接続しない）")
+
+
 def main():
     out = os.path.join(os.path.dirname(__file__), "..", "docs")
     os.makedirs(out, exist_ok=True)
     for name, svg in (("wiring-power.svg", power_svg()),
                       ("wiring-efficiency.svg", efficiency_svg()),
                       ("wiring-floating-gnd.svg", power_svg(missing_gnd=True)),
-                      ("vbus-reference.svg", vbus_reference_svg())):
+                      ("vbus-reference.svg", vbus_reference_svg()),
+                      ("breadboard-power.svg", breadboard_svg()),
+                      ("breadboard-efficiency.svg", breadboard_svg(efficiency=True))):
         with open(os.path.join(out, name), "w") as f:
             f.write(svg)
         print("wrote", os.path.join(out, name))
